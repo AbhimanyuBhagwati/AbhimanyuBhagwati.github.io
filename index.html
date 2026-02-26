@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Abhimanyu Bhagwati — AI Platform Engineer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080b0f;
+    --surface: #0d1117;
+    --border: rgba(0, 247, 255, 0.15);
+    --cyan: #00f7ff;
+    --cyan-dim: rgba(0, 247, 255, 0.5);
+    --cyan-faint: rgba(0, 247, 255, 0.08);
+    --white: #e6edf3;
+    --dim: #6e7681;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --orange: #f0883e;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--white);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+    cursor: default;
+  }
+
+  /* Scanline effect */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.03) 2px,
+      rgba(0, 0, 0, 0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* Vignette */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.5) 100%);
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  #terminal {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px 20px 120px;
+    min-height: 100vh;
+  }
+
+  /* Window chrome */
+  .window-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: #161b22;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    margin-bottom: 0;
+  }
+
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot-red { background: #ff5f57; }
+  .dot-yellow { background: #ffbd2e; }
+  .dot-green { background: #28ca42; }
+
+  .window-title {
+    flex: 1;
+    text-align: center;
+    font-size: 11px;
+    color: var(--dim);
+    letter-spacing: 1px;
+  }
+
+  .terminal-body {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0 0 8px 8px;
+    padding: 20px 24px;
+    min-height: calc(100vh - 80px);
+    position: relative;
+  }
+
+  /* Boot sequence */
+  .boot-line {
+    font-size: 12px;
+    color: var(--dim);
+    line-height: 1.8;
+    opacity: 0;
+    animation: fadeIn 0.1s forwards;
+  }
+
+  .boot-line.cyan { color: var(--cyan); }
+  .boot-line.green { color: var(--green); }
+
+  /* Output lines */
+  .output {
+    margin: 4px 0;
+    font-size: 13px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .prompt-line {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-top: 12px;
+    font-size: 13px;
+  }
+
+  .prompt-user { color: var(--green); }
+  .prompt-at { color: var(--dim); }
+  .prompt-host { color: var(--cyan); }
+  .prompt-path { color: var(--cyan-dim); }
+  .prompt-symbol { color: var(--white); margin: 0 6px; }
+  .prompt-cmd { color: var(--white); }
+  .prompt-cmd.typing { border-right: 2px solid var(--cyan); animation: blink 1s infinite; }
+
+  /* Input area */
+  #input-container {
+    display: flex;
+    align-items: center;
+    margin-top: 12px;
+    position: sticky;
+    bottom: 20px;
+  }
+
+  #input-container .prompt-user { color: var(--green); }
+  #input-container .prompt-host { color: var(--cyan); }
+
+  #cmd-input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--white);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    flex: 1;
+    caret-color: var(--cyan);
+  }
+
+  /* Content styling */
+  .section-header {
+    color: var(--cyan);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    margin: 2px 0;
+  }
+
+  .key { color: var(--cyan-dim); }
+  .val { color: var(--white); }
+  .str { color: #a5d6ff; }
+  .num { color: #79c0ff; }
+  .comment { color: var(--dim); font-style: italic; }
+  .success { color: var(--green); }
+  .warn { color: var(--yellow); }
+  .error-text { color: var(--red); }
+  .highlight { color: var(--cyan); font-weight: 700; }
+  .dim-text { color: var(--dim); }
+  .orange { color: var(--orange); }
+
+  .box {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px 16px;
+    margin: 8px 0;
+    background: var(--cyan-faint);
+  }
+
+  .metric-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 12px;
+    padding: 3px 0;
+  }
+
+  .metric-tag {
+    color: var(--cyan);
+    background: rgba(0,247,255,0.1);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    min-width: 52px;
+    text-align: center;
+  }
+
+  .metric-bar {
+    flex: 1;
+    height: 3px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .metric-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--cyan), rgba(0,247,255,0.4));
+    border-radius: 2px;
+    transition: width 0.8s ease;
+  }
+
+  .metric-val { color: var(--white); font-size: 11px; min-width: 80px; text-align: right; }
+
+  .project-card {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin: 8px 0;
+    background: rgba(13,17,23,0.8);
+    transition: border-color 0.2s;
+    cursor: pointer;
+  }
+  .project-card:hover { border-color: var(--cyan); }
+  .project-title { color: var(--cyan); font-weight: 700; font-size: 13px; }
+  .project-desc { color: var(--dim); font-size: 11px; margin-top: 4px; line-height: 1.6; }
+  .project-tags { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.06);
+    color: var(--dim);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .tag.special { background: rgba(0,247,255,0.1); color: var(--cyan); border-color: rgba(0,247,255,0.2); }
+
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 16px 0;
+  }
+
+  .link-text {
+    color: var(--cyan);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .link-text:hover { opacity: 0.7; }
+
+  .glitch {
+    position: relative;
+    color: var(--cyan);
+    font-weight: 700;
+    font-size: 32px;
+    letter-spacing: 8px;
+    text-align: center;
+    display: block;
+    padding: 12px 0;
+    animation: glitch-skew 8s infinite;
+  }
+
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    left: 0; right: 0;
+  }
+  .glitch::before {
+    color: #ff0040;
+    animation: glitch-1 4s infinite;
+    clip-path: polygon(0 0, 100% 0, 100% 35%, 0 35%);
+    opacity: 0.6;
+  }
+  .glitch::after {
+    color: #00f7ff;
+    animation: glitch-2 4s infinite;
+    clip-path: polygon(0 65%, 100% 65%, 100% 100%, 0 100%);
+    opacity: 0.4;
+  }
+
+  @keyframes glitch-1 {
+    0%, 90%, 100% { transform: translate(0); }
+    92% { transform: translate(-2px, 1px); }
+    94% { transform: translate(2px, -1px); }
+    96% { transform: translate(-1px, 2px); }
+  }
+  @keyframes glitch-2 {
+    0%, 88%, 100% { transform: translate(0); }
+    90% { transform: translate(2px, -2px); }
+    93% { transform: translate(-2px, 1px); }
+  }
+  @keyframes glitch-skew {
+    0%, 85%, 100% { transform: skewX(0); }
+    87% { transform: skewX(0.5deg); }
+    89% { transform: skewX(-0.5deg); }
+  }
+
+  @keyframes fadeIn { to { opacity: 1; } }
+  @keyframes blink { 0%, 100% { border-color: var(--cyan); } 50% { border-color: transparent; } }
+
+  .cursor-blink {
+    display: inline-block;
+    width: 8px;
+    height: 14px;
+    background: var(--cyan);
+    vertical-align: middle;
+    animation: blink 1s infinite;
+    margin-left: 2px;
+  }
+
+  /* Help table */
+  .cmd-table { width: 100%; font-size: 12px; }
+  .cmd-table td { padding: 3px 0; vertical-align: top; }
+  .cmd-table td:first-child { color: var(--cyan); min-width: 160px; }
+  .cmd-table td:last-child { color: var(--dim); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* Mobile */
+  @media (max-width: 600px) {
+    #terminal { padding: 12px 8px 100px; }
+    .terminal-body { padding: 14px 12px; }
+    .glitch { font-size: 22px; letter-spacing: 5px; }
+  }
+
+  .ascii-art {
+    color: var(--cyan);
+    font-size: 10px;
+    line-height: 1.2;
+    opacity: 0.7;
+    text-align: center;
+    margin: 8px 0;
+  }
+</style>
+</head>
+<body>
+
+<div id="terminal">
+  <div class="window-bar">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+    <span class="window-title">abhi@portfolio ~ bash</span>
+  </div>
+  <div class="terminal-body" id="term-body" onclick="focusInput()">
+
+    <div id="output"></div>
+    <div id="input-container">
+      <span class="prompt-user">abhi</span><span class="prompt-at" style="color:var(--dim)">@</span><span class="prompt-host">portfolio</span><span class="prompt-symbol" style="color:var(--dim)">:</span><span class="prompt-path" id="current-path">~</span><span class="prompt-symbol">$</span>
+      <input type="text" id="cmd-input" autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="off">
+    </div>
+
+  </div>
+</div>
+
+<script>
+const output = document.getElementById('output');
+const input = document.getElementById('cmd-input');
+const pathEl = document.getElementById('current-path');
+
+let history = [];
+let histIdx = -1;
+let booted = false;
+
+function focusInput() { input.focus(); }
+document.addEventListener('click', focusInput);
+
+// ─── COMMANDS ────────────────────────────────────────────────────────────────
+const COMMANDS = {
+
+  help: () => `
+<span class="section-header">// AVAILABLE COMMANDS</span>
+<hr class="divider">
+<table class="cmd-table">
+  <tr><td>whoami</td><td>Identity & current mission</td></tr>
+  <tr><td>ls projects/</td><td>List all projects</td></tr>
+  <tr><td>cat traceforge</td><td>Deep dive — flagship open source project</td></tr>
+  <tr><td>cat filingnectar</td><td>Local RAG for SEC filing analysis</td></tr>
+  <tr><td>skills --all</td><td>Full tech stack breakdown</td></tr>
+  <tr><td>metrics</td><td>Production impact numbers</td></tr>
+  <tr><td>experience</td><td>Work history</td></tr>
+  <tr><td>education</td><td>Academic background</td></tr>
+  <tr><td>contact</td><td>How to reach me</td></tr>
+  <tr><td>open github</td><td>Open GitHub profile</td></tr>
+  <tr><td>open linkedin</td><td>Open LinkedIn profile</td></tr>
+  <tr><td>clear</td><td>Clear terminal</td></tr>
+  <tr><td>sudo hire abhi</td><td>...</td></tr>
+</table>
+<hr class="divider">
+<span class="dim-text">// Tip: use ↑↓ to navigate history</span>`,
+
+  whoami: () => `
+<span class="glitch" data-text="ABHIMANYU">ABHIMANYU</span>
+<div class="box">
+<span class="key">name</span>       <span class="str">"Abhimanyu Bhagwati"</span>
+<span class="key">role</span>       <span class="str">"AI Platform & Infrastructure Engineer"</span>
+<span class="key">location</span>  <span class="str">"McLean, VA · Washington D.C. Area"</span>
+<span class="key">current</span>   <span class="str">"22nd Century Technologies — Gov AI Platforms"</span>
+<span class="key">education</span> <span class="str">"MS Computer Science · Virginia Tech · 2025"</span>
+<span class="key">open_to</span>   <span class="orange">"AI Platform · ML Infrastructure · LLM Systems"</span>
+</div>
+<span class="dim-text">I build AI infrastructure that ships to production.</span>
+<span class="dim-text">Multi-agent routing, fine-tuned LLMs, hybrid Rust/Python pipelines.</span>
+<span class="dim-text">500K+ daily interactions. CJIS/HIPAA compliant. Zero downtime.</span>
+
+<span class="comment">// type 'help' to explore further</span>`,
+
+  'ls projects/': () => `
+<span class="section-header">// ~/projects</span>
+<hr class="divider">
+<span class="success">drwxr-xr-x</span>  <span class="highlight">TraceForge</span>        <span class="tag special">PyPI ↑</span>  <span class="dim-text">Test harness for tool-calling AI agents</span>
+<span class="success">drwxr-xr-x</span>  <span class="highlight">FilingNectar</span>              <span class="dim-text">Local RAG for SEC 10-K filing analysis</span>
+<span class="success">drwxr-xr-x</span>  <span class="highlight">housing-analytics</span>         <span class="dim-text">Serverless GCP pipeline · 1M+ Zillow records</span>
+<span class="success">drwxr-xr-x</span>  <span class="highlight">grpc-microservices</span>        <span class="dim-text">High-perf Go microservices · 30% latency drop</span>
+<span class="success">drwxr-xr-x</span>  <span class="highlight">voice-transcription</span>       <span class="dim-text">Whisper AI + Streamlit · Production voice-to-text</span>
+<hr class="divider">
+<span class="dim-text">// cat &lt;project-name&gt; for details · e.g. 'cat traceforge'</span>`,
+
+  'cat traceforge': () => `
+<span class="section-header">// TraceForge — pip install traceforge</span>
+<hr class="divider">
+<div class="project-card">
+  <div class="project-title">🔬 TraceForge</div>
+  <div class="project-desc">The debugging layer the AI agent ecosystem was missing.
+
+Records every agent execution as a content-addressed trace (SHA-256).
+Replays deterministically — no model re-runs needed.
+Fuzzes tool responses to surface edge cases.
+Mines behavioral invariants Daikon-style across runs.</div>
+  <div class="project-tags">
+    <span class="tag special">pip install traceforge</span>
+    <span class="tag special">183 tests</span>
+    <span class="tag special">Open Source</span>
+    <span class="tag">Python</span>
+    <span class="tag">Pydantic</span>
+    <span class="tag">Ollama</span>
+    <span class="tag">SHA-256</span>
+  </div>
+</div>
+
+<span class="ascii-art">┌────────────────────────────────┐
+│        TRACE PIPELINE          │
+│                                │
+│  Agent Execution               │
+│       ↓  SHA-256 hash          │
+│  Immutable Trace Record        │
+│       ↓                        │
+│  Deterministic Replay          │
+│       ↓  no model calls        │
+│  Tool Response Fuzzing         │
+│       ↓                        │
+│  Behavioral Invariant Mining   │
+│       ↓  Daikon-style          │
+│  Causal Attribution Report     │
+└────────────────────────────────┘</span>
+
+<span class="highlight">→</span> <a class="link-text" href="https://github.com/AbhimanyuBhagwati/TraceForge" target="_blank">github.com/AbhimanyuBhagwati/TraceForge</a>
+<span class="highlight">→</span> <a class="link-text" href="https://pypi.org/project/traceforge/" target="_blank">pypi.org/project/traceforge</a>`,
+
+  'cat filingnectar': () => `
+<span class="section-header">// FilingNectar — Local RAG for SEC Filings</span>
+<hr class="divider">
+<div class="project-card">
+  <div class="project-title">📄 FilingNectar</div>
+  <div class="project-desc">Production-grade RAG system analyzing 74 SEC 10-K filings.
+9,334 sections indexed. 65% query success improvement via metadata filtering.
+100% local LLM architecture — no data leaves the machine.</div>
+  <div class="project-tags">
+    <span class="tag special">74 SEC filings</span>
+    <span class="tag special">9,334 sections</span>
+    <span class="tag special">RAGAS validated</span>
+    <span class="tag">FastAPI</span>
+    <span class="tag">Next.js</span>
+    <span class="tag">Ollama</span>
+    <span class="tag">Local LLM</span>
+  </div>
+</div>`,
+
+  'skills --all': () => `
+<span class="section-header">// TECH STACK</span>
+<hr class="divider">
+<span class="key">LANGUAGES</span>
+  <span class="highlight">●</span> Python    <span class="dim-text">AsyncIO · FastAPI · PyTest · PyO3</span>
+  <span class="highlight">●</span> Rust      <span class="dim-text">Systems programming · PyO3 bindings</span>
+  <span class="highlight">●</span> Go        <span class="dim-text">gRPC · microservices</span>
+  <span class="dim-text">●</span> TypeScript, SQL, Bash
+
+<span class="key">AI / ML</span>
+  <span class="highlight">●</span> LangChain, LlamaIndex, PyTorch
+  <span class="highlight">●</span> NeMo Fine-tuning (12B), LoRA
+  <span class="highlight">●</span> Multi-Agent Routing, RAG, MCP
+  <span class="highlight">●</span> RAGAS Evaluation, AI Governance
+  <span class="highlight">●</span> Milvus, pgvector, ChromaDB, Qdrant
+
+<span class="key">CLOUD & INFRA</span>
+  <span class="highlight">●</span> AWS, Azure (AI Foundry), GCP
+  <span class="highlight">●</span> Docker, Kubernetes
+  <span class="highlight">●</span> GitHub Actions, Jenkins, Azure DevOps
+  <span class="highlight">●</span> Grafana, Prometheus
+
+<span class="key">COMPLIANCE</span>
+  <span class="warn">●</span> CJIS · HIPAA · Government AI Governance`,
+
+  metrics: () => `
+<span class="section-header">// PRODUCTION METRICS</span>
+<hr class="divider">
+<div class="metric-row">
+  <span class="metric-tag">PERF</span>
+  <div class="metric-bar"><div class="metric-fill" style="width:100%"></div></div>
+  <span class="metric-val">17x throughput</span>
+</div>
+<span class="dim-text" style="font-size:11px;padding-left:60px;display:block;margin-bottom:8px">Rust/PyO3 hybrid pipeline · 500K+ daily interactions</span>
+
+<div class="metric-row">
+  <span class="metric-tag">ACCUR</span>
+  <div class="metric-bar"><div class="metric-fill" style="width:93%"></div></div>
+  <span class="metric-val">93% accuracy</span>
+</div>
+<span class="dim-text" style="font-size:11px;padding-left:60px;display:block;margin-bottom:8px">Hybrid search · RAGAS validated · 200+ docs</span>
+
+<div class="metric-row">
+  <span class="metric-tag">INTENT</span>
+  <div class="metric-bar"><div class="metric-fill" style="width:70%"></div></div>
+  <span class="metric-val">70% accuracy</span>
+</div>
+<span class="dim-text" style="font-size:11px;padding-left:60px;display:block;margin-bottom:8px">3B-param LLM routing · Text-to-SQL + RAG dispatch</span>
+
+<div class="metric-row">
+  <span class="metric-tag">TOKEN</span>
+  <div class="metric-bar"><div class="metric-fill" style="width:60%"></div></div>
+  <span class="metric-val">60% reduction</span>
+</div>
+<span class="dim-text" style="font-size:11px;padding-left:60px;display:block;margin-bottom:8px">Optimized JSON schema pipeline</span>
+
+<div class="metric-row">
+  <span class="metric-tag">HALLUC</span>
+  <div class="metric-bar"><div class="metric-fill" style="width:35%"></div></div>
+  <span class="metric-val">35% drop</span>
+</div>
+<span class="dim-text" style="font-size:11px;padding-left:60px;display:block;margin-bottom:8px">NeMo fine-tune + MCP context injection</span>`,
+
+  experience: () => `
+<span class="section-header">// EXPERIENCE</span>
+<hr class="divider">
+<span class="highlight">Software Engineer</span> · 22nd Century Technologies
+<span class="dim-text">May 2025 – Present · McLean, VA</span>
+  <span class="success">▸</span> Multi-agent routing with 3B LLM · 70% intent accuracy
+  <span class="success">▸</span> NeMo 12B fine-tune · 35% hallucination reduction
+  <span class="success">▸</span> Rust/PyO3 pipeline · 17x throughput · 500K+ daily ops
+
+<span class="highlight">Jr. AI Engineer Intern</span> · 22nd Century Technologies
+<span class="dim-text">Aug 2024 – May 2025 · McLean, VA</span>
+  <span class="success">▸</span> Milvus + IBM Granite hybrid search · 93% RAGAS accuracy
+  <span class="success">▸</span> ReAct agentic workflows · advanced prompt engineering
+  <span class="success">▸</span> Automated incident tagging · 60% token reduction
+
+<span class="highlight">Cloud Research Intern</span> · Commonwealth Cyber Initiative
+<span class="dim-text">Apr 2024 – Aug 2024 · Arlington, VA</span>
+  <span class="success">▸</span> Real-time telemetry monitoring · 72+ edge devices · 99.7% data quality
+
+<span class="highlight">Software Developer</span> · Rakuten Symphony
+<span class="dim-text">Dec 2021 – Jun 2023 · Bengaluru, India</span>
+  <span class="success">▸</span> Grafana/Prometheus · 2M+ daily events
+  <span class="success">▸</span> CI/CD automation · 60% deployment error reduction
+  <span class="success">▸</span> Kubernetes performance · 40% pipeline throughput boost`,
+
+  education: () => `
+<span class="section-header">// EDUCATION</span>
+<hr class="divider">
+<span class="highlight">MS Computer Science</span>
+<span class="dim-text">Virginia Tech · Aug 2023 – May 2025</span>
+<span class="dim-text">Machine Learning · Cloud Computing · Social Media Analytics · Data Visualization</span>
+
+<span class="highlight">BTech Computer Science & Engineering</span>
+<span class="dim-text">Chandigarh University · 2016 – 2020</span>`,
+
+  contact: () => `
+<span class="section-header">// CONTACT</span>
+<hr class="divider">
+<span class="key">email</span>     <a class="link-text" href="mailto:abhiwati97@gmail.com">abhiwati97@gmail.com</a>
+<span class="key">linkedin</span>  <a class="link-text" href="https://linkedin.com/in/abhimanyubhagwati" target="_blank">linkedin.com/in/abhimanyubhagwati</a>
+<span class="key">github</span>    <a class="link-text" href="https://github.com/AbhimanyuBhagwati" target="_blank">github.com/AbhimanyuBhagwati</a>
+<span class="key">pypi</span>      <a class="link-text" href="https://pypi.org/project/traceforge/" target="_blank">pypi.org/project/traceforge</a>
+<hr class="divider">
+<span class="dim-text">Open to: AI Platform · ML Infrastructure · LLM Systems roles</span>`,
+
+  'open github': () => {
+    window.open('https://github.com/AbhimanyuBhagwati', '_blank');
+    return `<span class="success">✓ Opening GitHub...</span>`;
+  },
+
+  'open linkedin': () => {
+    window.open('https://linkedin.com/in/abhimanyubhagwati', '_blank');
+    return `<span class="success">✓ Opening LinkedIn...</span>`;
+  },
+
+  clear: () => { output.innerHTML = ''; return null; },
+
+  'sudo hire abhi': () => `
+<span class="warn">⚠ sudo: authentication required</span>
+<span class="dim-text">Password: </span><span class="dim-text">••••••••••••</span>
+
+<span class="success">✓ Access granted.</span>
+<hr class="divider">
+<span class="highlight">Initiating hire sequence...</span>
+
+<span class="key">checking</span>   <span class="success">✓</span> AI infrastructure experience .............. <span class="green">VERIFIED</span>
+<span class="key">checking</span>   <span class="success">✓</span> Production RAG systems .................... <span class="green">VERIFIED</span>
+<span class="key">checking</span>   <span class="success">✓</span> Open source contributions (PyPI) .......... <span class="green">VERIFIED</span>
+<span class="key">checking</span>   <span class="success">✓</span> 17x performance improvements .............. <span class="green">VERIFIED</span>
+<span class="key">checking</span>   <span class="success">✓</span> MS Computer Science @ Virginia Tech ....... <span class="green">VERIFIED</span>
+<span class="key">checking</span>   <span class="success">✓</span> CJIS/HIPAA compliance experience .......... <span class="green">VERIFIED</span>
+
+<span class="highlight">→ Recommendation: HIRE</span>
+<span class="dim-text">→ Send offer to: abhiwati97@gmail.com</span>`,
+
+};
+
+// ─── BOOT SEQUENCE ────────────────────────────────────────────────────────────
+const bootLines = [
+  { text: 'Abhimanyu Bhagwati — Portfolio Terminal v2.0.25', cls: 'cyan', delay: 0 },
+  { text: 'Kernel: AI-Platform-Engineer 5.0 · Build: Production-Ready', cls: '', delay: 120 },
+  { text: '───────────────────────────────────────────────────────', cls: '', delay: 240 },
+  { text: '[  OK  ] Loaded: multi-agent-routing.service', cls: 'green', delay: 360 },
+  { text: '[  OK  ] Loaded: rag-pipeline.service', cls: 'green', delay: 450 },
+  { text: '[  OK  ] Loaded: traceforge.service (pip install traceforge)', cls: 'green', delay: 540 },
+  { text: '[  OK  ] Loaded: rust-python-hybrid.service · 17x throughput', cls: 'green', delay: 630 },
+  { text: '───────────────────────────────────────────────────────', cls: '', delay: 750 },
+  { text: 'System ready. Type "help" to explore.', cls: 'cyan', delay: 870 },
+];
+
+function boot() {
+  bootLines.forEach(({ text, cls, delay }) => {
+    setTimeout(() => {
+      const line = document.createElement('div');
+      line.className = `boot-line ${cls}`;
+      line.style.animationDelay = '0s';
+      line.textContent = text;
+      output.appendChild(line);
+      scrollBottom();
+    }, delay);
+  });
+
+  setTimeout(() => {
+    booted = true;
+    input.focus();
+  }, 1000);
+}
+
+// ─── COMMAND PROCESSING ───────────────────────────────────────────────────────
+function printPrompt(cmd) {
+  const line = document.createElement('div');
+  line.className = 'prompt-line';
+  line.innerHTML = `<span class="prompt-user">abhi</span><span style="color:var(--dim)">@</span><span class="prompt-host">portfolio</span><span style="color:var(--dim)">:</span><span class="prompt-path">${pathEl.textContent}</span><span class="prompt-symbol">$</span>&nbsp;<span class="prompt-cmd">${escHtml(cmd)}</span>`;
+  output.appendChild(line);
+}
+
+function printOutput(html) {
+  const div = document.createElement('div');
+  div.className = 'output';
+  div.innerHTML = html;
+  output.appendChild(div);
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function scrollBottom() {
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+function runCmd(raw) {
+  const cmd = raw.trim().toLowerCase();
+  if (!cmd) return;
+
+  history.unshift(raw.trim());
+  histIdx = -1;
+
+  printPrompt(raw.trim());
+
+  // path simulation
+  if (cmd === 'ls projects/' || cmd === 'ls projects') {
+    pathEl.textContent = '~/projects';
+  } else if (cmd === 'clear') {
+    // handled below
+  } else {
+    pathEl.textContent = '~';
+  }
+
+  // find handler
+  const handler = COMMANDS[cmd] || COMMANDS[cmd.replace(/\s+/g, ' ')];
+
+  if (handler) {
+    const result = handler();
+    if (result !== null && result !== undefined) {
+      printOutput(result);
+    }
+  } else if (cmd.startsWith('cat ')) {
+    const project = cmd.slice(4).trim();
+    const projectCmd = `cat ${project}`;
+    const h = COMMANDS[projectCmd];
+    if (h) {
+      const result = h();
+      if (result) printOutput(result);
+    } else {
+      printOutput(`<span class="error-text">cat: ${escHtml(project)}: No such file or directory</span>\n<span class="dim-text">// Try: ls projects/</span>`);
+    }
+  } else if (cmd.startsWith('open ')) {
+    const target = cmd.slice(5).trim();
+    const h = COMMANDS[`open ${target}`];
+    if (h) {
+      const result = h();
+      if (result) printOutput(result);
+    } else {
+      printOutput(`<span class="error-text">open: ${escHtml(target)}: not found</span>`);
+    }
+  } else if (cmd === 'ls' || cmd === 'ls -la') {
+    printOutput(COMMANDS['ls projects/']());
+  } else if (cmd === 'pwd') {
+    printOutput(`<span class="dim-text">/home/abhi</span>`);
+  } else if (cmd === 'date') {
+    printOutput(`<span class="dim-text">${new Date().toUTCString()}</span>`);
+  } else if (cmd === 'uname -a') {
+    printOutput(`<span class="dim-text">AIPortfolio 5.0.0-production #1 SMP AI Platform Engineer · Virginia Tech · McLean VA</span>`);
+  } else {
+    printOutput(`<span class="error-text">command not found: ${escHtml(raw.trim())}</span>\n<span class="dim-text">// Type 'help' for available commands</span>`);
+  }
+
+  scrollBottom();
+}
+
+// ─── INPUT HANDLING ───────────────────────────────────────────────────────────
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const val = input.value;
+    input.value = '';
+    runCmd(val);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (histIdx < history.length - 1) {
+      histIdx++;
+      input.value = history[histIdx];
+    }
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (histIdx > 0) {
+      histIdx--;
+      input.value = history[histIdx];
+    } else {
+      histIdx = -1;
+      input.value = '';
+    }
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    const val = input.value.trim().toLowerCase();
+    const cmds = Object.keys(COMMANDS);
+    const match = cmds.find(c => c.startsWith(val));
+    if (match) input.value = match;
+  } else if (e.key === 'l' && e.ctrlKey) {
+    e.preventDefault();
+    output.innerHTML = '';
+  }
+});
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+window.onload = () => {
+  boot();
+};
+</script>
+</body>
+</html>
